@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sathi Shop</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 24px auto; padding: 0 16px; color: #1f2937; }
+    h1 { font-size: 24px; } h2 { font-size: 18px; margin-top: 28px; }
+    label { display: block; margin: 8px 0 4px; }
+    input { padding: 6px 8px; font-size: 14px; }
+    button { padding: 6px 12px; margin-top: 8px; cursor: pointer; }
+    .error { color: #b91c1c; } .ok { color: #15803d; }
+    .hidden { display: none; }
+    ul { list-style: none; padding: 0; }
+    li { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #e5e7eb; }
+  </style>
+</head>
+<body>
+  <h1>Sathi Shop</h1>
+
+  <!-- Sign in -->
+  <section id="login-view">
+    <h2>Sign in</h2>
+    <form id="login-form" novalidate>
+      <label for="email">Email</label>
+      <input id="email" data-cy="email" type="email" autocomplete="username">
+      <label for="password">Password</label>
+      <input id="password" data-cy="password" type="password" autocomplete="current-password">
+      <div><button type="submit" data-cy="login">Sign in</button></div>
+      <p id="login-error" data-cy="login-error" class="error" role="alert"></p>
+    </form>
+  </section>
+
+  <!-- Shop, shown after sign in -->
+  <section id="shop-view" class="hidden">
+    <p data-cy="welcome">Welcome, <span id="who"></span> <button type="button" data-cy="logout">Sign out</button></p>
+
+    <h2>Products</h2>
+    <label for="search">Search</label>
+    <input id="search" data-cy="search" placeholder="Search products">
+    <ul id="products" data-cy="products"></ul>
+    <p id="no-results" data-cy="no-results" class="hidden">No products match your search.</p>
+
+    <h2>Cart</h2>
+    <ul id="cart" data-cy="cart"></ul>
+    <p data-cy="cart-empty" id="cart-empty">Your cart is empty.</p>
+    <label for="coupon">Coupon code</label>
+    <input id="coupon" data-cy="coupon">
+    <button type="button" data-cy="apply-coupon">Apply</button>
+    <p id="coupon-msg" data-cy="coupon-msg"></p>
+    <p>Total: <strong data-cy="total" id="total">₹0</strong></p>
+
+    <h2>Payment</h2>
+    <form id="pay-form" novalidate>
+      <label for="card">Card number</label>
+      <input id="card" data-cy="card" inputmode="numeric">
+      <label for="expiry">Expiry (MM/YY)</label>
+      <input id="expiry" data-cy="expiry" placeholder="MM/YY">
+      <div><button type="submit" data-cy="pay">Pay</button></div>
+      <p id="pay-msg" data-cy="pay-msg" role="status"></p>
+    </form>
+  </section>
+
+  <script>
+    // A tiny shop with no server: everything lives in this page.
+    const USERS = { 'demo@sathi.test': 'Passw0rd!' }
+    const PRODUCTS = [
+      { id: 'tea', name: 'Masala Tea', price: 120 },
+      { id: 'rice', name: 'Basmati Rice 1kg', price: 180 },
+      { id: 'dal', name: 'Toor Dal 1kg', price: 160 },
+      { id: 'ghee', name: 'Desi Ghee 500ml', price: 340 },
+    ]
+    const COUPONS = { SAVE10: 0.1, FESTIVE20: 0.2 }
+    const cart = new Map()
+    let discount = 0
+
+    const $ = (id) => document.getElementById(id)
+    const rupees = (n) => '₹' + Math.round(n)
+
+    function show(signedIn, email) {
+      $('login-view').classList.toggle('hidden', signedIn)
+      $('shop-view').classList.toggle('hidden', !signedIn)
+      if (signedIn) $('who').textContent = email
+    }
+
+    $('login-form').addEventListener('submit', (e) => {
+      e.preventDefault()
+      const email = $('email').value.trim()
+      const password = $('password').value
+      if (!email || !password) return ($('login-error').textContent = 'Enter your email and password.')
+      if (USERS[email] !== password) return ($('login-error').textContent = 'Wrong email or password.')
+      $('login-error').textContent = ''
+      sessionStorage.setItem('user', email)
+      show(true, email)
+    })
+    document.querySelector('[data-cy=logout]').addEventListener('click', () => {
+      sessionStorage.removeItem('user')
+      show(false)
+    })
+
+    function renderProducts() {
+      const q = $('search').value.trim().toLowerCase()
+      const list = PRODUCTS.filter((p) => p.name.toLowerCase().includes(q))
+      $('products').innerHTML = list
+        .map((p) => `<li data-cy="product" data-id="${p.id}"><span>${p.name} — ${rupees(p.price)}</span>` +
+          `<button type="button" data-cy="add" data-id="${p.id}">Add to cart</button></li>`)
+        .join('')
+      $('no-results').classList.toggle('hidden', list.length > 0)
+    }
+    $('search').addEventListener('input', renderProducts)
+    $('products').addEventListener('click', (e) => {
+      const id = e.target.dataset && e.target.dataset.id
+      if (!id || e.target.dataset.cy !== 'add') return
+      cart.set(id, (cart.get(id) || 0) + 1)
+      renderCart()
+    })
+
+    function renderCart() {
+      const rows = [...cart.entries()].map(([id, qty]) => ({ ...PRODUCTS.find((p) => p.id === id), qty }))
+      $('cart').innerHTML = rows
+        .map((r) => `<li data-cy="cart-line" data-id="${r.id}"><span>${r.name} × <span data-cy="qty">${r.qty}</span></span>` +
+          `<button type="button" data-cy="remove" data-id="${r.id}">Remove</button></li>`)
+        .join('')
+      $('cart-empty').classList.toggle('hidden', rows.length > 0)
+      const subtotal = rows.reduce((sum, r) => sum + r.price * r.qty, 0)
+      $('total').textContent = rupees(subtotal * (1 - discount))
+    }
+    $('cart').addEventListener('click', (e) => {
+      if (e.target.dataset.cy !== 'remove') return
+      cart.delete(e.target.dataset.id)
+      renderCart()
+    })
+    document.querySelector('[data-cy=apply-coupon]').addEventListener('click', () => {
+      const code = $('coupon').value.trim().toUpperCase()
+      if (COUPONS[code] === undefined) {
+        discount = 0
+        $('coupon-msg').className = 'error'
+        $('coupon-msg').textContent = 'This coupon is not valid.'
+      } else {
+        discount = COUPONS[code]
+        $('coupon-msg').className = 'ok'
+        $('coupon-msg').textContent = `${code} applied: ${discount * 100}% off.`
+      }
+      renderCart()
+    })
+
+    // Luhn check for card numbers.
+    function luhn(num) {
+      let sum = 0
+      for (let i = 0; i < num.length; i++) {
+        let d = Number(num[num.length - 1 - i])
+        if (i % 2 === 1) { d *= 2; if (d > 9) d -= 9 }
+        sum += d
+      }
+      return sum % 10 === 0
+    }
+    $('pay-form').addEventListener('submit', (e) => {
+      e.preventDefault()
+      const msg = $('pay-msg')
+      const num = $('card').value.replace(/\s+/g, '')
+      const m = /^(\d{2})\/(\d{2})$/.exec($('expiry').value.trim())
+      if (cart.size === 0) return (msg.textContent = 'Add something to your cart first.')
+      if (!/^\d{13,19}$/.test(num) || !luhn(num)) return (msg.textContent = 'Card number is not valid.')
+      if (!m || Number(m[1]) < 1 || Number(m[1]) > 12) return (msg.textContent = 'Expiry date is not valid.')
+      const now = new Date()
+      const expiry = new Date(2000 + Number(m[2]), Number(m[1]), 1) // first day after the expiry month
+      if (expiry <= now) return (msg.textContent = 'This card has expired.')
+      msg.textContent = `Payment of ${$('total').textContent} received. Thank you!`
+    })
+
+    renderProducts()
+    renderCart()
+    const saved = sessionStorage.getItem('user')
+    show(Boolean(saved), saved)
+  </script>
+</body>
+</html>

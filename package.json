@@ -1,0 +1,10 @@
+{
+  "name": "selection-sathi-test",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Cypress tests for the Sathi Shop demo page (app/index.html)",
+  "scripts": {
+    "cy:run": "cypress run",
+    "cy:open": "cypress open"
+  }
+}
